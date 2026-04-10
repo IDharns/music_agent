@@ -1,0 +1,13 @@
+{
+  "query_type": "semantic",
+  "artist_seeds": ["Taylor Swift"],
+  "genres": ["electronic", "pop"],
+  "moods": ["dreamy", "light", "late-night"],
+  "vocal": "female",
+  "energy": "low",
+  "era": null,
+  "popularity_preference": "less_popular",
+  "include": [],
+  "exclude": ["too loud"],
+  "raw_query": "类似Taylor Swift但更梦幻、更轻一点，不要太吵"
+}
