@@ -6,7 +6,7 @@ from typing import Optional
 
 import pandas as pd
 
-from schema import get_connection, create_tables
+from init_db import get_connection, create_tables
 
 DB_PATH = "../data/music.db"
 MSD_CSV_PATH = "../data/msd_tracks.csv"

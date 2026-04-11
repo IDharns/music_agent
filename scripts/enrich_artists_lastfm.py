@@ -2,8 +2,8 @@ import time
 import json
 import requests
 import sqlite3
+from app.config import Settings
 
-API_KEY = "351551b68c88f0c490bbfa9c77faaec7"
 BASE_URL = "http://ws.audioscrobbler.com/2.0/"
 
 DB_PATH = "../data/music.db"
@@ -45,7 +45,7 @@ def fetch_artist_tags(artist_name: str):
     params = {
         "method": "artist.getTopTags",
         "artist": artist_name,
-        "api_key": API_KEY,
+        "api_key": Settings.LASTFM_API_KEY,
         "format": "json"
     }
 
