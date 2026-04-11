@@ -2,8 +2,9 @@ import time
 import json
 import requests
 import sqlite3
+from app.config import Settings
 
-API_KEY = "YOUR_LASTFM_API_KEY"
+API_KEY = Settings.LASTFM_API_KEY
 BASE_URL = "http://ws.audioscrobbler.com/2.0/"
 DB_PATH = "../data/music.db"
 
