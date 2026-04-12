@@ -65,6 +65,10 @@ class QueryUnderstandingModule:
         popularity_preference = self._extract_popularity_preference(normalized_query)
         include = self._extract_include(normalized_query)
         exclude = self._extract_exclude(normalized_query)
+        if exclude:
+            excluded = set(exclude)
+            genres = [genre for genre in genres if genre not in excluded]
+            include = [value for value in include if value not in excluded]
 
         # 单独一个艺人名时，直接当 artist query
         if not artist_seeds and self._looks_like_artist_query(raw_query, normalized_query):
@@ -239,10 +243,8 @@ class QueryUnderstandingModule:
         if not q:
             return False
 
-        q_lower = q.lower()
-
         # 明显带条件词/风格词，就不是纯 artist query
-        if any(token in q_lower for token in self.NON_ARTIST_HINTS):
+        if any(self._keyword_in_text(q, token) for token in self.NON_ARTIST_HINTS):
             return False
 
         # 太长通常不是单纯艺人名
@@ -254,7 +256,7 @@ class QueryUnderstandingModule:
             return True
 
         # 英文艺人名：1~4 个词，每个词首字母大写或全大写
-        words = q.split()
+        words = raw_query.strip().split()
         if 1 <= len(words) <= 4:
             ok = True
             for w in words:
@@ -385,15 +387,26 @@ class QueryUnderstandingModule:
             "remix": ["不要remix", "不要混音", "not remix", "no remix"],
             "instrumental": ["不要纯音乐", "not instrumental", "no instrumental"],
             "acoustic": ["不要acoustic", "not acoustic", "no acoustic"],
+            "classical": ["不要classical", "不要古典", "not classical", "no classical"],
         }
         return self._extract_multi_label(text, mapping)
 
     def _extract_multi_label(self, text: str, mapping: dict[str, list[str]]) -> list[str]:
         out: list[str] = []
         for label, keywords in mapping.items():
-            if any(keyword in text for keyword in keywords):
+            if any(self._keyword_in_text(text, keyword) for keyword in keywords):
                 out.append(label)
         return out
+
+    def _keyword_in_text(self, text: str, keyword: str) -> bool:
+        keyword = keyword.strip().lower()
+        if not keyword:
+            return False
+
+        text = text.lower()
+        if re.fullmatch(r"[a-z0-9][a-z0-9&' .+\-]*", keyword):
+            return bool(re.search(rf"(?<![a-z0-9]){re.escape(keyword)}(?![a-z0-9])", text))
+        return keyword in text
 
     def _normalize_query(self, text: str) -> str:
         text = (text or "").strip().lower()
