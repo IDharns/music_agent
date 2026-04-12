@@ -11,12 +11,6 @@ from sentence_transformers import SentenceTransformer
 
 
 class VectorRetriever:
-    """
-    Retrieve music candidates from:
-    1. FAISS semantic search
-    2. SQLite artist lookup
-    """
-
     MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
     def __init__(
@@ -36,6 +30,7 @@ class VectorRetriever:
         self.model = SentenceTransformer(self.model_name)
         self.index = faiss.read_index(self.index_path)
         self.ids = np.load(self.ids_path)
+        self._validate_schema()
 
         if self.ids.ndim != 1:
             raise ValueError(f"ids.npy must be 1-D, got shape={self.ids.shape}")
@@ -46,14 +41,7 @@ class VectorRetriever:
                 f"index.ntotal={self.index.ntotal}, ids={len(self.ids)}"
             )
 
-    # =========================
-    # Public APIs
-    # =========================
-
     def search_semantic(self, text: str, top_k: int = 50) -> list[dict[str, Any]]:
-        """
-        Semantic retrieval via sentence-transformers + FAISS.
-        """
         query = self._normalize_text(text)
         if not query:
             return []
@@ -70,11 +58,8 @@ class VectorRetriever:
 
         pairs: list[tuple[int, float]] = []
         for idx, score in zip(indices[0], scores[0]):
-            if idx < 0:
+            if idx < 0 or idx >= len(self.ids):
                 continue
-            if idx >= len(self.ids):
-                continue
-
             song_id = int(self.ids[idx])
             pairs.append((song_id, float(score)))
 
@@ -84,11 +69,6 @@ class VectorRetriever:
         )
 
     def search_by_artist(self, artist_name: str, top_k: int = 50) -> list[dict[str, Any]]:
-        """
-        Artist lookup:
-        1. Exact normalized match
-        2. Prefix/LIKE fallback
-        """
         artist_query = self._normalize_text(artist_name)
         if not artist_query:
             return []
@@ -101,44 +81,27 @@ class VectorRetriever:
 
         return self._search_artist_like(artist_query, top_k=top_k)
 
-    # =========================
-    # Artist lookup
-    # =========================
-
     def _search_artist_exact(self, artist_name: str, top_k: int) -> list[dict[str, Any]]:
-        sql = """
+        sql = f"""
               SELECT
-                  id,
-                  title,
-                  artist_name AS artist,
-                  album_name AS album,
-                  release_year,
-                  popularity,
-                  popularity_bucket,
-                  language,
-                  vocal_type,
-                  genre_text,
-                  style_text,
-                  mood_text,
-                  tags_json,
-                  artist_tags_json
+                  {self._select_candidate_columns()}
               FROM tracks
               WHERE lower(trim(artist_name)) = ?
               ORDER BY
-                  popularity DESC NULLS LAST,
-                  release_year DESC NULLS LAST,
-                  id ASC
-                  LIMIT ? \
+                  CASE WHEN popularity_proxy IS NULL THEN 1 ELSE 0 END,
+                popularity_proxy DESC,
+                CASE WHEN popularity IS NULL THEN 1 ELSE 0 END,
+                popularity DESC,
+                CASE WHEN release_year IS NULL THEN 1 ELSE 0 END,
+                release_year DESC,
+                id ASC
+            LIMIT ? \
               """
 
-        rows = self._fetch_rows(
-            sql=sql,
-            params=(artist_name, top_k),
-        )
+        rows = self._fetch_rows(sql=sql, params=(artist_name, top_k))
 
         results: list[dict[str, Any]] = []
         for rank, row in enumerate(rows):
-            # 给 exact artist 一个稳定高分，方便上层识别
             score = 1.0 - rank * 0.001
             results.append(
                 self._row_to_candidate(
@@ -151,23 +114,11 @@ class VectorRetriever:
 
     def _search_artist_like(self, artist_name: str, top_k: int) -> list[dict[str, Any]]:
         like_query = f"%{artist_name}%"
+        prefix_query = f"{artist_name}%"
 
-        sql = """
+        sql = f"""
               SELECT
-                  id,
-                  title,
-                  artist_name AS artist,
-                  album_name AS album,
-                  release_year,
-                  popularity,
-                  popularity_bucket,
-                  language,
-                  vocal_type,
-                  genre_text,
-                  style_text,
-                  mood_text,
-                  tags_json,
-                  artist_tags_json
+                  {self._select_candidate_columns()}
               FROM tracks
               WHERE lower(artist_name) LIKE ?
               ORDER BY
@@ -176,13 +127,16 @@ class VectorRetriever:
                   WHEN lower(artist_name) LIKE ? THEN 1
                   ELSE 2
               END,
-                popularity DESC NULLS LAST,
-                release_year DESC NULLS LAST,
+                CASE WHEN popularity_proxy IS NULL THEN 1 ELSE 0 END,
+                popularity_proxy DESC,
+                CASE WHEN popularity IS NULL THEN 1 ELSE 0 END,
+                popularity DESC,
+                CASE WHEN release_year IS NULL THEN 1 ELSE 0 END,
+                release_year DESC,
                 id ASC
             LIMIT ? \
               """
 
-        prefix_query = f"{artist_name}%"
         rows = self._fetch_rows(
             sql=sql,
             params=(like_query, artist_name, prefix_query, top_k),
@@ -190,7 +144,6 @@ class VectorRetriever:
 
         results: list[dict[str, Any]] = []
         for rank, row in enumerate(rows):
-            # like match 给一个略低于 exact 的分数
             score = 0.92 - rank * 0.001
             results.append(
                 self._row_to_candidate(
@@ -200,10 +153,6 @@ class VectorRetriever:
                 )
             )
         return results
-
-    # =========================
-    # Candidate hydration
-    # =========================
 
     def _hydrate_candidates(
             self,
@@ -219,20 +168,7 @@ class VectorRetriever:
         placeholders = ",".join("?" for _ in ids)
         sql = f"""
             SELECT
-                id,
-                title,
-                artist_name AS artist,
-                album_name AS album,
-                release_year,
-                popularity,
-                popularity_bucket,
-                language,
-                vocal_type,
-                genre_text,
-                style_text,
-                mood_text,
-                tags_json,
-                artist_tags_json
+                {self._select_candidate_columns()}
             FROM tracks
             WHERE id IN ({placeholders})
         """
@@ -262,16 +198,15 @@ class VectorRetriever:
             score: float,
             match_type: str,
     ) -> dict[str, Any]:
-        track_tags = self._parse_tag_json(row["tags_json"])
-        artist_tags = self._parse_tag_json(row["artist_tags_json"])
+        primary_artists = self._parse_json_list(row["primary_artists_json"])
+        featured_artists = self._parse_json_list(row["featured_artists_json"])
+        all_contributors = self._parse_json_list(row["all_contributors_json"])
+        artist_tags = self._parse_json_list(row["raw_artist_tags_json"])
+        album_tags = self._parse_json_list(row["raw_album_tags_json"])
+        style_tags = self._parse_json_list(row["norm_style_tags_json"])
+        mood_anchors = self._parse_json_list(row["mood_anchors_json"])
 
-        merged_tags: list[str] = []
-        seen: set[str] = set()
-        for tag in track_tags + artist_tags:
-            key = tag.lower()
-            if key not in seen:
-                seen.add(key)
-                merged_tags.append(tag)
+        tags = self._dedupe_preserve_order(artist_tags + album_tags)
 
         return {
             "id": row["id"],
@@ -281,19 +216,24 @@ class VectorRetriever:
             "release_year": row["release_year"],
             "popularity": row["popularity"],
             "popularity_bucket": row["popularity_bucket"],
+            "popularity_proxy": row["popularity_proxy"],
             "language": row["language"],
             "vocal_type": row["vocal_type"],
             "genre_text": row["genre_text"],
             "style_text": row["style_text"],
             "mood_text": row["mood_text"],
-            "tags": merged_tags,
+            "primary_artists": primary_artists,
+            "featured_artists": featured_artists,
+            "all_contributors": all_contributors,
+            "artist_tags": artist_tags,
+            "album_tags": album_tags,
+            "style_tags": style_tags,
+            "mood_anchors": mood_anchors,
+            "mood_confidence": row["mood_confidence"],
+            "tags": tags,
             "score": float(score),
             "match_type": match_type,
         }
-
-    # =========================
-    # DB helpers
-    # =========================
 
     def _fetch_rows(
             self,
@@ -309,9 +249,73 @@ class VectorRetriever:
         finally:
             conn.close()
 
-    # =========================
-    # Utility helpers
-    # =========================
+    def _validate_schema(self) -> None:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            rows = conn.execute("PRAGMA table_info(tracks)").fetchall()
+        finally:
+            conn.close()
+
+        columns = {str(row[1]) for row in rows}
+        if not columns:
+            raise RuntimeError("Database is missing required table: tracks")
+
+        required = {
+            "id",
+            "title",
+            "artist_name",
+            "album_name",
+            "release_year",
+            "popularity",
+            "popularity_bucket",
+            "popularity_proxy",
+            "language",
+            "vocal_type",
+            "genre_text",
+            "style_text",
+            "mood_text",
+            "primary_artists_json",
+            "featured_artists_json",
+            "all_contributors_json",
+            "raw_artist_tags_json",
+            "raw_album_tags_json",
+            "norm_style_tags_json",
+            "mood_anchors_json",
+            "mood_confidence",
+        }
+        missing = sorted(required - columns)
+        if missing:
+            raise RuntimeError(
+                "Database schema is not music_v2 compatible; missing columns: "
+                + ", ".join(missing)
+            )
+
+    def _select_candidate_columns(self) -> str:
+        return ",\n                  ".join(
+            [
+                "id",
+                "title",
+                "artist_name AS artist",
+                "album_name AS album",
+                "release_year",
+                "popularity",
+                "popularity_bucket",
+                "popularity_proxy",
+                "language",
+                "vocal_type",
+                "genre_text",
+                "style_text",
+                "mood_text",
+                "primary_artists_json",
+                "featured_artists_json",
+                "all_contributors_json",
+                "raw_artist_tags_json",
+                "raw_album_tags_json",
+                "norm_style_tags_json",
+                "mood_anchors_json",
+                "mood_confidence",
+            ]
+        )
 
     def _validate_runtime_files(self) -> None:
         required = [
@@ -335,7 +339,7 @@ class VectorRetriever:
             return ""
         return " ".join(str(value).strip().lower().split())
 
-    def _parse_tag_json(self, raw: Any) -> list[str]:
+    def _parse_json_list(self, raw: Any) -> list[str]:
         if raw is None:
             return []
 

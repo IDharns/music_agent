@@ -14,16 +14,25 @@ load_dotenv(BASE_DIR / ".env")
 
 class Settings:
     APP_NAME = "Music Agent API"
-    APP_VERSION = "0.5.0"
+    APP_VERSION = "0.6.0"
 
     BASE_DIR = BASE_DIR
     DATA_DIR = DATA_DIR
 
-    DB_PATH = DATA_DIR / "music.db"
-    INDEX_PATH = DATA_DIR / "faiss.index"
-    IDS_PATH = DATA_DIR / "ids.npy"
+    DB_PATH = Path(os.getenv("MUSIC_DB_PATH", DATA_DIR / "music_v2.db"))
+    INDEX_PATH = Path(os.getenv("MUSIC_INDEX_PATH", DATA_DIR / "faiss.index"))
+    IDS_PATH = Path(os.getenv("MUSIC_IDS_PATH", DATA_DIR / "ids.npy"))
 
     OPENROUTER_API_KEY: str | None = os.getenv("OPENROUTER_API_KEY")
+    OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini")
+    OPENROUTER_BASE_URL: str = os.getenv(
+        "OPENROUTER_BASE_URL",
+        "https://openrouter.ai/api/v1",
+    )
+
+    ENABLE_LLM_QUERY_REWRITE: bool = os.getenv("ENABLE_LLM_QUERY_REWRITE", "1") == "1"
+    ENABLE_LLM_RERANK: bool = os.getenv("ENABLE_LLM_RERANK", "1") == "1"
+
     LASTFM_API_KEY: str | None = os.getenv("LASTFM_API_KEY")
 
     @classmethod
