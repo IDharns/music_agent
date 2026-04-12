@@ -1,0 +1,107 @@
+[
+  {
+    "query": "Adele",
+    "intent": "artist lookup for Adele catalog recommendations",
+    "must_have": [],
+    "nice_to_have": ["female vocal", "pop", "soul"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "Taylor Swift",
+    "intent": "artist lookup for Taylor Swift catalog recommendations",
+    "must_have": [],
+    "nice_to_have": ["female vocal", "pop", "singer songwriter"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "Sade",
+    "intent": "artist lookup for Sade catalog recommendations",
+    "must_have": [],
+    "nice_to_have": ["female vocal", "soul", "rnb"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "Radiohead",
+    "intent": "artist lookup for Radiohead catalog recommendations",
+    "must_have": [],
+    "nice_to_have": ["alternative rock", "rock", "indie"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "sad female pop",
+    "intent": "female vocal pop with a melancholy direction",
+    "must_have": ["female vocal", "pop"],
+    "nice_to_have": ["melancholic", "sad", "singer songwriter"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "dreamy indie pop female vocal",
+    "intent": "dreamy indie pop led by female vocals",
+    "must_have": ["female vocal", "indie pop"],
+    "nice_to_have": ["dreamy", "dream pop", "ethereal", "soft"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "calm late-night electronic",
+    "intent": "quiet electronic music for late-night listening",
+    "must_have": ["electronic"],
+    "nice_to_have": ["calm", "ambient", "downtempo", "chill"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "80s synthpop but not live",
+    "intent": "1980s synthpop studio recordings",
+    "must_have": ["synthpop"],
+    "nice_to_have": ["1980s", "pop", "electronic"],
+    "avoid": ["live", "karaoke"]
+  },
+  {
+    "query": "melancholic singer-songwriter",
+    "intent": "intimate singer-songwriter music with a sad edge",
+    "must_have": ["singer songwriter"],
+    "nice_to_have": ["melancholic", "sad", "folk"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "ambient but not classical",
+    "intent": "ambient music that does not drift into classical catalog results",
+    "must_have": ["ambient"],
+    "nice_to_have": ["calm", "electronic"],
+    "avoid": ["classical", "live", "karaoke"]
+  },
+  {
+    "query": "类似Taylor Swift但不要太热门，更梦幻一点",
+    "intent": "Taylor Swift-adjacent pop, less mainstream, with a dreamier direction",
+    "must_have": ["female vocal", "pop"],
+    "nice_to_have": ["dreamy", "dream pop", "singer songwriter"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "像 Adele 但不要太热门",
+    "intent": "Adele-adjacent vocal pop/soul, less mainstream",
+    "must_have": ["female vocal"],
+    "nice_to_have": ["pop", "soul", "singer songwriter"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "类似 Radiohead 的冷一点的歌",
+    "intent": "Radiohead-adjacent rock or electronic-leaning music, less mainstream",
+    "must_have": [],
+    "nice_to_have": ["alternative rock", "indie", "electronic", "dark"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "soft acoustic female vocal",
+    "intent": "soft acoustic tracks with female vocals",
+    "must_have": ["female vocal", "acoustic"],
+    "nice_to_have": ["folk", "singer songwriter", "calm"],
+    "avoid": ["live", "remix", "karaoke"]
+  },
+  {
+    "query": "energetic rock not remix",
+    "intent": "energetic rock songs that are not remixes",
+    "must_have": ["rock"],
+    "nice_to_have": ["energetic", "alternative rock"],
+    "avoid": ["remix", "karaoke"]
+  }
+]
