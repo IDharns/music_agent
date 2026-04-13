@@ -198,6 +198,7 @@ class RecommendationService:
 
         merged: list[dict[str, Any]] = []
         used_ids: set[int] = set()
+        used_keys: set[tuple[str, str]] = set()
 
         for item in llm_ranked:
             song_id = item.get("id")
@@ -207,6 +208,9 @@ class RecommendationService:
             song_id = int(song_id)
             base = by_id.get(song_id)
             if base is None:
+                continue
+            key = self._dedupe_key(base)
+            if key in used_keys:
                 continue
 
             heuristic_score = base.get("score")
@@ -221,6 +225,7 @@ class RecommendationService:
 
             merged.append(base)
             used_ids.add(song_id)
+            used_keys.add(key)
 
             if len(merged) >= final_k:
                 return merged
@@ -233,13 +238,22 @@ class RecommendationService:
             song_id = int(song_id)
             if song_id in used_ids:
                 continue
+            key = self._dedupe_key(item)
+            if key in used_keys:
+                continue
 
             fallback_item = dict(item)
             fallback_item["heuristic_score"] = fallback_item.get("score")
             fallback_item["llm_score"] = None
             merged.append(fallback_item)
+            used_keys.add(key)
 
             if len(merged) >= final_k:
                 break
 
         return merged
+
+    def _dedupe_key(self, item: dict[str, Any]) -> tuple[str, str]:
+        title = " ".join(str(item.get("title") or "").strip().lower().split())
+        artist = " ".join(str(item.get("artist") or "").strip().lower().split())
+        return title, artist

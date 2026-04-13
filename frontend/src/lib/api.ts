@@ -60,16 +60,13 @@ export type SearchResponse = {
     results: SearchResultItem[];
 };
 
-const API_BASE =
-    process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
-
 export async function searchMusic(
     query: string,
     finalK = 10,
     maxPerArtist = 3,
     includeDebug = false
 ): Promise<SearchResponse> {
-    const url = new URL("/search", API_BASE);
+    const url = new URL("/api/search", window.location.origin);
     url.searchParams.set("query", query);
     url.searchParams.set("final_k", String(finalK));
     url.searchParams.set("max_per_artist", String(maxPerArtist));

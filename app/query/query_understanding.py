@@ -32,6 +32,13 @@ class QueryUnderstandingModule:
             "pop",
             "rnb",
         ],
+        "radiohead": [
+            "alternative rock",
+            "indie rock",
+            "electronic",
+            "art rock",
+            "dark",
+        ],
     }
 
     ARTIST_LIKE_TRIGGERS = (
@@ -307,7 +314,7 @@ class QueryUnderstandingModule:
             "mellow": ["mellow", "舒缓"],
             "energetic": ["energetic", "有活力", "燃", "upbeat"],
             "chill": ["chill", "放松", "轻松"],
-            "dark": ["dark", "黑暗", "阴郁"],
+            "dark": ["dark", "黑暗", "阴郁", "冷一点", "冷感", "冷"],
             "ethereal": ["ethereal", "空灵"],
         }
         return self._extract_multi_label(text, mapping)
