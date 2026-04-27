@@ -12,6 +12,18 @@ DATA_DIR = BASE_DIR / "data"
 load_dotenv(BASE_DIR / ".env")
 
 
+def default_db_path() -> Path:
+    env_path = os.getenv("MUSIC_DB_PATH")
+    if env_path:
+        return Path(env_path)
+
+    primary = DATA_DIR / "music.db"
+    legacy = DATA_DIR / "music_v2.db"
+    if primary.exists() or not legacy.exists():
+        return primary
+    return legacy
+
+
 class Settings:
     APP_NAME = "Music Agent API"
     APP_VERSION = "0.6.0"
@@ -19,7 +31,7 @@ class Settings:
     BASE_DIR = BASE_DIR
     DATA_DIR = DATA_DIR
 
-    DB_PATH = Path(os.getenv("MUSIC_DB_PATH", DATA_DIR / "music_v2.db"))
+    DB_PATH = default_db_path()
     INDEX_PATH = Path(os.getenv("MUSIC_INDEX_PATH", DATA_DIR / "faiss.index"))
     IDS_PATH = Path(os.getenv("MUSIC_IDS_PATH", DATA_DIR / "ids.npy"))
 

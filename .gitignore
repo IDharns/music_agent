@@ -25,6 +25,7 @@ data/*.npy
 data/*.index
 data/*.db
 data/*.csv
+*.db
 
 # Distribution / packaging
 build/
