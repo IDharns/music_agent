@@ -32,7 +32,7 @@ Defaults:
 - Backend: `http://127.0.0.1:8000`
 - Frontend: `http://localhost:3000`
 - Runtime device: CPU-first
-- Runtime data: existing files under `data/`
+- Runtime data: existing files under `data/`, or auto-bootstrapped from Million Song Dataset metadata when missing
 - Secrets and API keys: `.env` in the repo root
 
 If the machine has no network access but the Hugging Face model is already cached:
@@ -65,7 +65,7 @@ data/faiss.index
 data/ids.npy
 ```
 
-For normal demo usage, you do not need to rebuild these files if they already exist.
+For normal demo usage, you do not need to rebuild these files if they already exist. If they are missing, `setup` and `run backend` / `run all` automatically download the Million Song Dataset `track_metadata.db`, convert a bounded slice to `data/music.db`, and build these runtime files.
 
 Optional API keys belong in `.env`, not shell exports:
 
@@ -107,6 +107,8 @@ Available commands:
 ```text
 setup     Install dependencies and validate the local runtime.
 build-db  Build or rebuild the runtime DB, embeddings, ids, and FAISS index.
+bootstrap-data
+          Download MSD metadata, convert it, and build runtime data files.
 run       Run backend, frontend, or both.
 warmup    Ask a running backend to preload the model and FAISS index.
 ```
@@ -143,6 +145,10 @@ Useful setup args:
 --gpu            Do not force CPU-only PyTorch; use normal PyPI dependency resolution.
 --skip-backend   Skip Python backend dependency installation.
 --skip-frontend  Skip frontend npm dependency installation.
+--skip-data-bootstrap
+                 Do not auto-download/build data when runtime files are missing.
+--bootstrap-track-limit N
+                 MSD tracks to import when bootstrapping. Use 0 for all rows.
 --offline        Validate as an offline run; requires the HF model cache to exist.
 --build-db       Run the full DB/index rebuild pipeline after dependency setup.
 ```
@@ -190,6 +196,8 @@ Useful run args:
 --backend-port PORT         Backend port. Default: 8000.
 --frontend-port PORT        Frontend port. Default: 3000.
 --offline                   Run backend with HF_HUB_OFFLINE=1.
+--skip-data-bootstrap       Do not auto-download/build data when runtime files are missing.
+--bootstrap-track-limit N   MSD tracks to import when bootstrapping. Use 0 for all rows.
 --no-reload                 Run backend without uvicorn --reload.
 --no-force-cpu              Do not hide CUDA devices at runtime.
 ```
@@ -261,11 +269,40 @@ This project has two phases:
 
 You only need to rebuild data when the source data changes, the schema changes, or embeddings/index files need to be regenerated.
 
+### Automatic Bootstrap
+
+If runtime data is missing, `setup`, `run backend`, and `run all` bootstrap a local dataset automatically:
+
+1. Download the official Million Song Dataset metadata SQLite file, `track_metadata.db`.
+2. Convert the MSD `songs` table into this repo's `data/music.db` source schema.
+3. Run the normal `build-db` pipeline to create `data/music_v2.db`, `data/ids.npy`, and `data/faiss.index`.
+
+The default bootstrap imports 10,000 tracks so first startup stays reasonable. To change that:
+
+```bash
+python scripts/manage.py setup --bootstrap-track-limit 25000
+python scripts/manage.py run all --bootstrap-track-limit 25000
+```
+
+Use `0` to import all rows from the metadata DB:
+
+```bash
+python scripts/manage.py bootstrap-data --track-limit 0
+```
+
+You can also set the default in `.env`:
+
+```bash
+MUSIC_BOOTSTRAP_TRACK_LIMIT=10000
+```
+
+The raw downloaded metadata is stored at `data/raw/track_metadata.db`, and the converted source DB is stored at `data/music.db`. Both are ignored by git.
+
 ### Full Rebuild
 
 `build-db` reads a source SQLite database that contains a `tracks` table, writes the v2 runtime DB, builds embeddings, writes `ids.npy`, and writes `faiss.index`.
 
-For the MSD path, this project assumes MSD metadata has already been imported into a SQLite source DB such as `data/music.db`. The rebuild script starts from that MSD-derived `tracks` table, then can optionally enrich contributors/albums through Last.fm.
+For the MSD path, `bootstrap-data` can create `data/music.db` automatically from the official MSD metadata SQLite file. The rebuild script starts from that MSD-derived `tracks` table, then can optionally enrich contributors/albums through Last.fm.
 
 ```bash
 python scripts/manage.py build-db --src-db data/music.db

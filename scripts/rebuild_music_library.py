@@ -12,10 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import faiss
 import numpy as np
 import requests
 from sentence_transformers import SentenceTransformer
+import faiss
 from app.config import Settings
 
 # =========================
@@ -1065,7 +1065,7 @@ def build_index(
     ids = np.array([r[0] for r in rows], dtype=np.int64)
     texts = [r[1] for r in rows]
 
-    model = SentenceTransformer(MODEL_NAME)
+    model = SentenceTransformer(MODEL_NAME, device="cpu")
     vecs = model.encode(
         texts,
         batch_size=batch_size,
