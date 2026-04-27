@@ -9,6 +9,8 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+from app.models import Track
+
 
 class VectorRetriever:
     MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -41,7 +43,7 @@ class VectorRetriever:
                 f"index.ntotal={self.index.ntotal}, ids={len(self.ids)}"
             )
 
-    def search_semantic(self, text: str, top_k: int = 50) -> list[dict[str, Any]]:
+    def search_semantic(self, text: str, top_k: int = 50) -> list[Track]:
         query = self._normalize_text(text)
         if not query:
             return []
@@ -68,7 +70,7 @@ class VectorRetriever:
             match_type="semantic",
         )
 
-    def search_by_artist(self, artist_name: str, top_k: int = 50) -> list[dict[str, Any]]:
+    def search_by_artist(self, artist_name: str, top_k: int = 50) -> list[Track]:
         artist_query = self._normalize_text(artist_name)
         if not artist_query:
             return []
@@ -81,7 +83,7 @@ class VectorRetriever:
 
         return self._search_artist_like(artist_query, top_k=top_k)
 
-    def _search_artist_exact(self, artist_name: str, top_k: int) -> list[dict[str, Any]]:
+    def _search_artist_exact(self, artist_name: str, top_k: int) -> list[Track]:
         sql = f"""
               SELECT
                   {self._select_candidate_columns()}
@@ -112,7 +114,7 @@ class VectorRetriever:
             )
         return results
 
-    def _search_artist_like(self, artist_name: str, top_k: int) -> list[dict[str, Any]]:
+    def _search_artist_like(self, artist_name: str, top_k: int) -> list[Track]:
         like_query = f"%{artist_name}%"
         prefix_query = f"{artist_name}%"
 
@@ -158,7 +160,7 @@ class VectorRetriever:
             self,
             id_score_pairs: list[tuple[int, float]],
             match_type: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[Track]:
         if not id_score_pairs:
             return []
 
@@ -197,7 +199,7 @@ class VectorRetriever:
             row: sqlite3.Row,
             score: float,
             match_type: str,
-    ) -> dict[str, Any]:
+    ) -> Track:
         primary_artists = self._parse_json_list(row["primary_artists_json"])
         featured_artists = self._parse_json_list(row["featured_artists_json"])
         all_contributors = self._parse_json_list(row["all_contributors_json"])

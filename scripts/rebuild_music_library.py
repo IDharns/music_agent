@@ -2,15 +2,21 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import re
 import sqlite3
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 import faiss
 import numpy as np
@@ -480,8 +486,13 @@ def pick(row: sqlite3.Row, cols: set[str], *candidates: str) -> Any:
 
 def load_source_rows(src_conn: sqlite3.Connection) -> tuple[list[sqlite3.Row], set[str]]:
     src_conn.row_factory = sqlite3.Row
-    cols = table_columns(src_conn, "tracks")
-    rows = src_conn.execute("SELECT * FROM tracks WHERE title IS NOT NULL").fetchall()
+    # Support both "tracks" and "songs" table names
+    table_name = "tracks"
+    existing_tables = [r[0] for r in src_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    if "tracks" not in existing_tables and "songs" in existing_tables:
+        table_name = "songs"
+    cols = table_columns(src_conn, table_name)
+    rows = src_conn.execute(f"SELECT * FROM {table_name} WHERE title IS NOT NULL").fetchall()
     return rows, cols
 
 
@@ -864,11 +875,23 @@ def build_clean_track(
         row: sqlite3.Row,
         cols: set[str],
         dst_conn: sqlite3.Connection,
+        track_id_override: int | None = None,
 ) -> CleanTrack:
-    track_id = int(pick(row, cols, "id"))
+    # Use provided track_id or generate from numeric field
+    if track_id_override is not None:
+        track_id = track_id_override
+    else:
+        numeric_id = pick(row, cols, "track_7digitalid", "id")
+        if numeric_id is None:
+            track_id_str = pick(row, cols, "track_id", "song_id")
+            if track_id_str:
+                numeric_id = int(hashlib.md5(str(track_id_str).encode()).hexdigest()[:8], 16)
+            else:
+                numeric_id = 0
+        track_id = int(numeric_id) if numeric_id else 0
     title = safe_str(pick(row, cols, "title"))
     artist_name = safe_str(pick(row, cols, "artist_name", "artist"))
-    album_name = safe_str(pick(row, cols, "album_name", "album"))
+    album_name = safe_str(pick(row, cols, "album_name", "album", "release"))
 
     year_raw = pick(row, cols, "release_year", "year")
     try:
@@ -1158,7 +1181,7 @@ def main() -> None:
 
     clean_tracks: list[CleanTrack] = []
     for i, row in enumerate(rows, start=1):
-        clean_tracks.append(build_clean_track(row, cols, dst_conn))
+        clean_tracks.append(build_clean_track(row, cols, dst_conn, track_id_override=i))
         if i % 100000 == 0:
             print(f"built clean track docs: {i}/{len(rows)}")
 
