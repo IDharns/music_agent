@@ -65,7 +65,7 @@ data/faiss.index
 data/ids.npy
 ```
 
-For normal demo usage, you do not need to rebuild these files if they already exist. If they are missing, `setup` and `run backend` / `run all` automatically download the Million Song Dataset `track_metadata.db`, convert a bounded slice to `data/music.db`, and build these runtime files.
+For normal demo usage, you do not need to rebuild these files if they already exist. If they are missing, `setup` and `run backend` / `run all` automatically download the Million Song Dataset `track_metadata.db`, convert a bounded slice to `data/music.db`, and build these runtime files. Existing runtime files are reused as-is; use `bootstrap-data --force-convert` when you intentionally want to replace an older local dataset.
 
 Optional API keys belong in `.env`, not shell exports:
 
@@ -282,6 +282,18 @@ The default bootstrap imports 10,000 tracks so first startup stays reasonable. T
 ```bash
 python scripts/manage.py setup --bootstrap-track-limit 25000
 python scripts/manage.py run all --bootstrap-track-limit 25000
+```
+
+If runtime files already exist, startup reuses them and does not overwrite them. To rebuild from the already-downloaded MSD metadata with a new size:
+
+```bash
+python scripts/manage.py bootstrap-data --force-convert --track-limit 10000
+```
+
+To redownload the raw MSD metadata file too:
+
+```bash
+python scripts/manage.py bootstrap-data --force-download --force-convert --track-limit 10000
 ```
 
 Use `0` to import all rows from the metadata DB:
