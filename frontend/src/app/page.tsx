@@ -13,6 +13,83 @@ const EXAMPLE_QUERIES = [
   "类似Taylor Swift但不要太热门，更梦幻一点",
 ];
 
+const GENRE_OPTIONS = [
+  "pop",
+  "indie pop",
+  "dream pop",
+  "shoegaze",
+  "rock",
+  "indie",
+  "electronic",
+  "folk",
+  "jazz",
+  "rnb",
+  "hip hop",
+  "classical",
+] as const;
+
+const ERA_OPTIONS = [
+  { value: "", label: "Any era" },
+  { value: "1980s", label: "1980s" },
+  { value: "1990s", label: "1990s" },
+  { value: "2000s", label: "2000s" },
+  { value: "2010s", label: "2010s" },
+] as const;
+
+const VOCAL_OPTIONS = [
+  { value: "", label: "Any vocal" },
+  { value: "female vocal", label: "Female vocal" },
+  { value: "male vocal", label: "Male vocal" },
+  { value: "instrumental", label: "Instrumental" },
+] as const;
+
+const POPULARITY_OPTIONS = [
+  { value: "", label: "Any popularity" },
+  { value: "less_popular", label: "Less popular" },
+  { value: "more_popular", label: "More popular" },
+] as const;
+
+type SearchFilters = {
+  artist: string;
+  genre: string;
+  era: string;
+  vocal: string;
+  popularity: string;
+  language: string;
+  resultCount: string;
+  excludeLive: boolean;
+  excludeRemix: boolean;
+  excludeInstrumental: boolean;
+};
+
+type FilterKey = keyof SearchFilters;
+
+const DEFAULT_FILTERS: SearchFilters = {
+  artist: "",
+  genre: "",
+  era: "",
+  vocal: "",
+  popularity: "",
+  language: "",
+  resultCount: "10",
+  excludeLive: false,
+  excludeRemix: false,
+  excludeInstrumental: false,
+};
+
+const FILTER_OPTIONS: Array<{ key: FilterKey; label: string }> = [
+  { key: "artist", label: "Artist" },
+  { key: "genre", label: "Genre" },
+  { key: "era", label: "Era" },
+  { key: "vocal", label: "Vocal" },
+  { key: "popularity", label: "Popularity" },
+  { key: "language", label: "Language" },
+  { key: "resultCount", label: "Result count" },
+  { key: "excludeLive", label: "Exclude live" },
+  { key: "excludeRemix", label: "Exclude remix" },
+  { key: "excludeInstrumental", label: "Exclude instrumental" },
+];
+
 function formatScore(score?: number | null) {
   if (score === null || score === undefined || Number.isNaN(score)) {
     return "-";
@@ -25,6 +102,47 @@ function formatPopularity(bucket?: string | null) {
   if (bucket === "medium") return "Familiar";
   if (bucket === "high") return "Popular";
   return "Unknown reach";
+}
+
+function buildSearchQuery(query: string, filters: SearchFilters, activeFilters: FilterKey[]): string {
+  const parts: string[] = [];
+  const trimmedQuery = query.trim();
+  const active = new Set(activeFilters);
+
+  if (trimmedQuery) {
+    parts.push(trimmedQuery);
+  }
+  if (active.has("artist") && filters.artist.trim()) {
+    parts.push(`like ${filters.artist.trim()}`);
+  }
+  if (active.has("genre") && filters.genre) {
+    parts.push(filters.genre);
+  }
+  if (active.has("era") && filters.era) {
+    parts.push(filters.era);
+  }
+  if (active.has("vocal") && filters.vocal) {
+    parts.push(filters.vocal);
+  }
+  if (active.has("popularity") && filters.popularity === "less_popular") {
+    parts.push("not too popular");
+  } else if (active.has("popularity") && filters.popularity === "more_popular") {
+    parts.push("popular");
+  }
+  if (active.has("language") && filters.language.trim()) {
+    parts.push(filters.language.trim());
+  }
+  if (active.has("excludeLive") && filters.excludeLive) {
+    parts.push("not live");
+  }
+  if (active.has("excludeRemix") && filters.excludeRemix) {
+    parts.push("not remix");
+  }
+  if (active.has("excludeInstrumental") && filters.excludeInstrumental) {
+    parts.push("not instrumental");
+  }
+
+  return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
 function useItunesEnrich(title: string, artist: string): ItunesMatch | null {
@@ -270,6 +388,9 @@ function SearchTurnView({ turn }: { turn: SearchTurn }) {
 
 export default function Page() {
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<SearchFilters>(DEFAULT_FILTERS);
+  const [activeFilterKeys, setActiveFilterKeys] = useState<FilterKey[]>([]);
+  const [pendingFilterKey, setPendingFilterKey] = useState("");
   const [turns, setTurns] = useState<SearchTurn[]>([]);
   const nextTurnId = useRef(1);
   const latestData = useMemo(() => {
@@ -279,10 +400,15 @@ export default function Page() {
     return null;
   }, [turns]);
   const isLoading = useMemo(() => turns.some((turn) => turn.loading), [turns]);
+  const availableFilterOptions = useMemo(
+    () => FILTER_OPTIONS.filter((option) => !activeFilterKeys.includes(option.key)),
+    [activeFilterKeys]
+  );
 
   async function runSearch(nextQuery?: string) {
-    const q = (nextQuery ?? query).trim();
-    if (!q) return;
+    const baseQuery = (nextQuery ?? query).trim();
+    const composedQuery = buildSearchQuery(baseQuery, filters, activeFilterKeys);
+    if (!composedQuery) return;
 
     const turnId = String(nextTurnId.current++);
     setQuery("");
@@ -290,7 +416,7 @@ export default function Page() {
       ...current,
       {
         id: turnId,
-        query: q,
+        query: composedQuery,
         loading: true,
         error: "",
         data: null,
@@ -298,7 +424,11 @@ export default function Page() {
     ]);
 
     try {
-      const result = await searchMusic(q, 10, 3, DEBUG_UI);
+      const requestedCount = activeFilterKeys.includes("resultCount")
+        ? Number.parseInt(filters.resultCount, 10)
+        : 10;
+      const finalK = Number.isFinite(requestedCount) ? requestedCount : 10;
+      const result = await searchMusic(composedQuery, finalK, 3, DEBUG_UI);
       setTurns((current) =>
         current.map((turn) =>
           turn.id === turnId
@@ -325,9 +455,23 @@ export default function Page() {
     }
   }
 
+  function addFilter(key: string) {
+    if (!key) return;
+    if (!FILTER_OPTIONS.some((option) => option.key === key)) return;
+    setActiveFilterKeys((current) => (
+      current.includes(key as FilterKey) ? current : [...current, key as FilterKey]
+    ));
+    setPendingFilterKey("");
+  }
+
+  function removeFilter(key: FilterKey) {
+    setActiveFilterKeys((current) => current.filter((item) => item !== key));
+    setFilters((current) => ({ ...current, [key]: DEFAULT_FILTERS[key] }));
+  }
+
   return (
-    <main className="min-h-screen bg-black text-white">
-      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-5 sm:px-6">
+    <main className="h-screen overflow-hidden bg-black text-white">
+      <div className="mx-auto flex h-screen max-w-5xl flex-col px-4 py-5 sm:px-6">
         <header className="flex items-center justify-between border-b border-neutral-900 pb-4">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-neutral-500">Music Agent</p>
@@ -340,7 +484,7 @@ export default function Page() {
           ) : null}
         </header>
 
-        <section className="flex-1 space-y-6 overflow-y-auto py-6">
+        <section className="min-h-0 flex-1 space-y-6 overflow-y-auto py-6">
           <AssistantIntro />
 
           {turns.map((turn) => (
@@ -384,22 +528,195 @@ export default function Page() {
           ) : null}
         </section>
 
-        <footer className="border-t border-neutral-900 pt-4">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Try: dreamy indie pop female vocal"
-              className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-white outline-none placeholder:text-neutral-600 focus:border-neutral-500"
-            />
-            <button
-              onClick={() => void runSearch()}
-              disabled={isLoading}
-              className="rounded-lg bg-white px-5 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isLoading ? "Searching" : "Send"}
-            </button>
+        <footer className="-mx-4 sticky bottom-0 z-10 border-t border-neutral-900 bg-black/95 px-4 pt-4 pb-4 backdrop-blur sm:-mx-6 sm:px-6">
+          <div className="space-y-3">
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px_auto]">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Try: dreamy indie pop female vocal"
+                className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-white outline-none placeholder:text-neutral-600 focus:border-neutral-500"
+              />
+              <div className="flex gap-3">
+                <select
+                  value={pendingFilterKey}
+                  onChange={(e) => addFilter(e.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-950 px-3 py-3 text-sm text-white outline-none focus:border-neutral-500"
+                >
+                  <option value="">Add filter</option>
+                  {availableFilterOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilters(DEFAULT_FILTERS);
+                    setActiveFilterKeys([]);
+                    setPendingFilterKey("");
+                  }}
+                  className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-300 transition hover:border-neutral-600 hover:text-white"
+                >
+                  Reset
+                </button>
+              </div>
+              <button
+                onClick={() => void runSearch()}
+                disabled={isLoading}
+                className="rounded-lg bg-white px-5 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isLoading ? "Searching" : "Send"}
+              </button>
+            </div>
+
+            {activeFilterKeys.length ? (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {activeFilterKeys.map((filterKey) => (
+                  <div
+                    key={filterKey}
+                    className="rounded-lg border border-neutral-800 bg-neutral-950 p-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
+                        {FILTER_OPTIONS.find((option) => option.key === filterKey)?.label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeFilter(filterKey)}
+                        className="text-xs text-neutral-500 transition hover:text-white"
+                      >
+                        Remove
+                      </button>
+                    </div>
+
+                    {filterKey === "artist" ? (
+                      <input
+                        value={filters.artist}
+                        onChange={(e) => setFilters((current) => ({ ...current, artist: e.target.value }))}
+                        placeholder="Artist"
+                        className="w-full min-w-0 rounded-lg border border-neutral-800 bg-black px-3 py-2.5 text-sm text-white outline-none placeholder:text-neutral-600 focus:border-neutral-500"
+                      />
+                    ) : null}
+
+                    {filterKey === "genre" ? (
+                      <select
+                        value={filters.genre}
+                        onChange={(e) => setFilters((current) => ({ ...current, genre: e.target.value }))}
+                        className="w-full min-w-0 rounded-lg border border-neutral-800 bg-black px-3 py-2.5 text-sm text-white outline-none focus:border-neutral-500"
+                      >
+                        <option value="">Any genre</option>
+                        {GENRE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+
+                    {filterKey === "era" ? (
+                      <select
+                        value={filters.era}
+                        onChange={(e) => setFilters((current) => ({ ...current, era: e.target.value }))}
+                        className="w-full min-w-0 rounded-lg border border-neutral-800 bg-black px-3 py-2.5 text-sm text-white outline-none focus:border-neutral-500"
+                      >
+                        {ERA_OPTIONS.map((option) => (
+                          <option key={option.label} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+
+                    {filterKey === "vocal" ? (
+                      <select
+                        value={filters.vocal}
+                        onChange={(e) => setFilters((current) => ({ ...current, vocal: e.target.value }))}
+                        className="w-full min-w-0 rounded-lg border border-neutral-800 bg-black px-3 py-2.5 text-sm text-white outline-none focus:border-neutral-500"
+                      >
+                        {VOCAL_OPTIONS.map((option) => (
+                          <option key={option.label} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+
+                    {filterKey === "popularity" ? (
+                      <select
+                        value={filters.popularity}
+                        onChange={(e) => setFilters((current) => ({ ...current, popularity: e.target.value }))}
+                        className="w-full min-w-0 rounded-lg border border-neutral-800 bg-black px-3 py-2.5 text-sm text-white outline-none focus:border-neutral-500"
+                      >
+                        {POPULARITY_OPTIONS.map((option) => (
+                          <option key={option.label} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+
+                    {filterKey === "language" ? (
+                      <input
+                        value={filters.language}
+                        onChange={(e) => setFilters((current) => ({ ...current, language: e.target.value }))}
+                        placeholder="Language"
+                        className="w-full min-w-0 rounded-lg border border-neutral-800 bg-black px-3 py-2.5 text-sm text-white outline-none placeholder:text-neutral-600 focus:border-neutral-500"
+                      />
+                    ) : null}
+
+                    {filterKey === "resultCount" ? (
+                      <select
+                        value={filters.resultCount}
+                        onChange={(e) => setFilters((current) => ({ ...current, resultCount: e.target.value }))}
+                        className="w-full min-w-0 rounded-lg border border-neutral-800 bg-black px-3 py-2.5 text-sm text-white outline-none focus:border-neutral-500"
+                      >
+                        {[3, 5, 10, 15, 20].map((count) => (
+                          <option key={count} value={String(count)}>
+                            {count} results
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+
+                    {filterKey === "excludeLive" ? (
+                      <label className="flex items-center gap-2 text-sm text-neutral-300">
+                        <input
+                          type="checkbox"
+                          checked={filters.excludeLive}
+                          onChange={(e) => setFilters((current) => ({ ...current, excludeLive: e.target.checked }))}
+                        />
+                        Exclude live versions
+                      </label>
+                    ) : null}
+
+                    {filterKey === "excludeRemix" ? (
+                      <label className="flex items-center gap-2 text-sm text-neutral-300">
+                        <input
+                          type="checkbox"
+                          checked={filters.excludeRemix}
+                          onChange={(e) => setFilters((current) => ({ ...current, excludeRemix: e.target.checked }))}
+                        />
+                        Exclude remixes
+                      </label>
+                    ) : null}
+
+                    {filterKey === "excludeInstrumental" ? (
+                      <label className="flex items-center gap-2 text-sm text-neutral-300">
+                        <input
+                          type="checkbox"
+                          checked={filters.excludeInstrumental}
+                          onChange={(e) => setFilters((current) => ({ ...current, excludeInstrumental: e.target.checked }))}
+                        />
+                        Exclude instrumental
+                      </label>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </footer>
       </div>
