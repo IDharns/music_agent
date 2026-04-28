@@ -43,6 +43,7 @@ def main() -> None:
     setup_parser.add_argument("--skip-data-bootstrap", action="store_true", help="Do not auto-download/build data when runtime files are missing.")
     setup_parser.add_argument("--bootstrap-track-limit", type=int, default=bootstrap_track_limit_default(), help="MSD tracks to import when bootstrapping data. Use 0 for all rows. Default: 10000.")
     setup_parser.add_argument("--offline", action="store_true", help="Validate as an offline run; requires the HF model to already be cached.")
+    setup_parser.add_argument("--no-build-db", action="store_true", help="Do not auto-build runtime data during setup.")
     add_build_args(setup_parser, include_build_flag=True)
     setup_parser.set_defaults(func=cmd_setup)
 
@@ -81,9 +82,14 @@ def main() -> None:
 
 def add_build_args(parser: argparse.ArgumentParser, include_build_flag: bool) -> None:
     if include_build_flag:
-        parser.add_argument("--build-db", action="store_true", help="Run the full DB/index rebuild pipeline.")
-    parser.add_argument("--src-db", type=Path, default=ROOT_DIR / "data" / "music.db", help="Source SQLite DB with a tracks table.")
-    parser.add_argument("--dst-db", type=Path, default=ROOT_DIR / "data" / "music_v2.db", help="Runtime v2 SQLite DB output.")
+        parser.add_argument("--build-db", action="store_true", help="Force the full DB/index rebuild pipeline.")
+    parser.add_argument(
+        "--src-db",
+        type=Path,
+        default=ROOT_DIR / "data" / "track_metadata.db",
+        help="Source SQLite DB. Supports MSD track_metadata.db (`songs`) or a normalized `tracks` table.",
+    )
+    parser.add_argument("--dst-db", type=Path, default=ROOT_DIR / "data" / "music.db", help="Runtime SQLite DB output.")
     parser.add_argument("--emb-path", type=Path, default=ROOT_DIR / "data" / "embeddings.npy", help="Embeddings .npy output.")
     parser.add_argument("--ids-path", type=Path, default=ROOT_DIR / "data" / "ids.npy", help="IDs .npy output.")
     parser.add_argument("--index-path", type=Path, default=ROOT_DIR / "data" / "faiss.index", help="FAISS index output.")
@@ -97,7 +103,21 @@ def add_build_args(parser: argparse.ArgumentParser, include_build_flag: bool) ->
 def cmd_setup(args: argparse.Namespace) -> None:
     print_header("Preflight")
     print_system_info()
-    check_data_files(warn_only=not args.build_db)
+    args.src_db = resolve_source_db(args.src_db)
+    runtime_missing = missing_runtime_files(args)
+    if runtime_missing:
+        print("Runtime data is incomplete:")
+        for path in runtime_missing:
+            print(f"  - missing {path}")
+
+    should_build_db = bool(args.build_db)
+    if runtime_missing and not args.no_build_db:
+        if args.src_db.exists():
+            print(f"Will build runtime data from source DB: {args.src_db}")
+            should_build_db = True
+        else:
+            print(f"WARN: source DB not found: {args.src_db}")
+            print("Setup will install dependencies, but runtime validation will fail until data is built.")
 
     if not args.skip_backend:
         print_header("Backend Dependencies")
@@ -123,7 +143,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
         require_executable("npm")
         run_cmd(["npm", "ci"], cwd=FRONTEND_DIR)
 
-    if args.build_db:
+    if should_build_db:
         cmd_build_db(args)
     elif not args.skip_data_bootstrap:
         ensure_runtime_data(args)
@@ -131,7 +151,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
     print_header("Validation")
     validate_backend_dependencies(skip=args.skip_backend)
     validate_frontend_dependencies(skip=args.skip_frontend)
-    check_data_files(warn_only=False)
+    check_data_files(args, warn_only=False)
     check_model_cache(offline=args.offline)
     print("Setup finished.")
 
@@ -140,6 +160,9 @@ def cmd_build_db(args: argparse.Namespace) -> None:
     print_header("Build DB")
     if args.lastfm and not os.getenv("LASTFM_API_KEY"):
         raise SystemExit("LASTFM_API_KEY is required for --lastfm. Put it in .env.")
+    args.src_db = resolve_source_db(args.src_db)
+    if not args.src_db.exists():
+        raise SystemExit(f"Source DB not found: {args.src_db}")
     python = venv_python() if venv_python().exists() else Path(sys.executable)
     cmd = [
         str(python),
@@ -479,13 +502,20 @@ def validate_frontend_dependencies(skip: bool) -> None:
     print("frontend deps ok")
 
 
-def check_data_files(warn_only: bool) -> None:
-    required = [
-        ROOT_DIR / "data" / "music_v2.db",
-        ROOT_DIR / "data" / "faiss.index",
-        ROOT_DIR / "data" / "ids.npy",
+def runtime_files(args: argparse.Namespace) -> list[Path]:
+    return [
+        resolve_path(args.dst_db),
+        resolve_path(args.index_path),
+        resolve_path(args.ids_path),
     ]
-    missing = [path for path in required if not path.exists()]
+
+
+def missing_runtime_files(args: argparse.Namespace) -> list[Path]:
+    return [path for path in runtime_files(args) if not path.exists()]
+
+
+def check_data_files(args: argparse.Namespace, warn_only: bool) -> None:
+    missing = missing_runtime_files(args)
     if not missing:
         print("runtime data ok")
         return
@@ -495,6 +525,16 @@ def check_data_files(warn_only: bool) -> None:
         print("Use setup --build-db or build-db to regenerate them.")
         return
     raise SystemExit(message)
+
+
+def resolve_source_db(path: Path) -> Path:
+    resolved = resolve_path(path)
+    default_source = ROOT_DIR / "data" / "track_metadata.db"
+    root_source = ROOT_DIR / "track_metadata.db"
+    if resolved == default_source and not resolved.exists() and root_source.exists():
+        print(f"Using source DB from repo root: {root_source}")
+        return root_source
+    return resolved
 
 
 def check_model_cache(offline: bool) -> None:

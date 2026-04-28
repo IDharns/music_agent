@@ -60,7 +60,7 @@ Native Windows may work, but WSL2 is recommended for the smoothest FAISS / Sente
 Runtime files required by the API:
 
 ```text
-data/music_v2.db
+data/music.db
 data/faiss.index
 data/ids.npy
 ```
@@ -84,7 +84,7 @@ music_agent/
 ├─ app/                # FastAPI backend
 ├─ frontend/           # Next.js frontend
 ├─ data/               # Local runtime data
-│  ├─ music_v2.db      # Runtime SQLite database
+│  ├─ music.db         # Runtime SQLite database
 │  ├─ faiss.index      # Runtime FAISS vector index
 │  ├─ ids.npy          # Track ids aligned with faiss.index
 │  └─ embeddings.npy   # Optional saved embeddings, useful when rebuilding
@@ -130,6 +130,7 @@ This does the following:
 - prints system information
 - loads `.env` if it exists
 - checks runtime data files
+- builds missing runtime data automatically if a source DB is available
 - creates `.venv` if missing
 - installs CPU-only PyTorch first
 - installs `requirements.txt`
@@ -150,14 +151,17 @@ Useful setup args:
 --bootstrap-track-limit N
                  MSD tracks to import when bootstrapping. Use 0 for all rows.
 --offline        Validate as an offline run; requires the HF model cache to exist.
---build-db       Run the full DB/index rebuild pipeline after dependency setup.
+--no-build-db    Do not auto-build runtime data during setup.
+--build-db       Force the full DB/index rebuild pipeline after dependency setup.
 ```
 
-For a CPU-only setup that also rebuilds the database and index:
+For a CPU-only setup that explicitly rebuilds the database and index:
 
 ```bash
-python scripts/manage.py setup --build-db --src-db data/music.db
+python scripts/manage.py setup --build-db --src-db data/track_metadata.db
 ```
+
+By default, `setup` uses `data/track_metadata.db` as the source DB. If that file is absent but `track_metadata.db` exists in the repo root, it uses the repo-root file. If both the runtime files and the source DB are missing, setup still installs dependencies, then fails validation with a clear missing-data message.
 
 For GPU-oriented dependency resolution:
 
@@ -312,20 +316,31 @@ The raw downloaded metadata is stored at `data/raw/track_metadata.db`, and the c
 
 ### Full Rebuild
 
-`build-db` reads a source SQLite database that contains a `tracks` table, writes the v2 runtime DB, builds embeddings, writes `ids.npy`, and writes `faiss.index`.
+`build-db` reads a source SQLite database, writes the runtime DB, builds embeddings, writes `ids.npy`, and writes `faiss.index`.
+
+The default source is the original MSD metadata database:
+
+```text
+data/track_metadata.db
+```
+
+The build script supports both:
+
+- MSD `track_metadata.db`, which contains a `songs` table.
+- a normalized intermediate DB, such as `data/music.db`, which contains a `tracks` table.
 
 For the MSD path, `bootstrap-data` can create `data/music.db` automatically from the official MSD metadata SQLite file. The rebuild script starts from that MSD-derived `tracks` table, then can optionally enrich contributors/albums through Last.fm.
 
 ```bash
-python scripts/manage.py build-db --src-db data/music.db
+python scripts/manage.py build-db
 ```
 
 Expanded version:
 
 ```bash
 python scripts/manage.py build-db \
-  --src-db data/music.db \
-  --dst-db data/music_v2.db \
+  --src-db data/track_metadata.db \
+  --dst-db data/music.db \
   --emb-path data/embeddings.npy \
   --ids-path data/ids.npy \
   --index-path data/faiss.index
@@ -334,8 +349,8 @@ python scripts/manage.py build-db \
 Useful build args:
 
 ```text
---src-db PATH              Source SQLite DB with a tracks table.
---dst-db PATH              Runtime v2 SQLite DB output.
+--src-db PATH              Source SQLite DB. Supports MSD `songs` or normalized `tracks`.
+--dst-db PATH              Runtime SQLite DB output. Default: data/music.db.
 --emb-path PATH            Embeddings .npy output.
 --ids-path PATH            IDs .npy output.
 --index-path PATH          FAISS index output.
@@ -356,7 +371,7 @@ Then run:
 
 ```bash
 python scripts/manage.py build-db \
-  --src-db data/music.db \
+  --src-db data/track_metadata.db \
   --lastfm \
   --album-enrich
 ```
@@ -365,19 +380,19 @@ For a smaller test rebuild:
 
 ```bash
 python scripts/manage.py build-db \
-  --src-db data/music.db \
+  --src-db data/track_metadata.db \
   --max-contributors 1000 \
   --max-albums 1000
 ```
 
 ### Refresh Derived Fields
 
-Use the lower-level script when `music_v2.db` already exists and you only changed derived metadata logic. This does not call Last.fm.
+Use the lower-level script when `music.db` already exists and you only changed derived metadata logic. This does not call Last.fm.
 
 ```bash
 source .venv/bin/activate
 python scripts/refresh_music_v2_derived_fields.py \
-  --db-path data/music_v2.db \
+  --db-path data/music.db \
   --rebuild-index \
   --emb-path data/embeddings.npy \
   --ids-path data/ids.npy \
@@ -444,7 +459,7 @@ cp .env.example .env
 Example:
 
 ```bash
-MUSIC_DB_PATH=data/music_v2.db
+MUSIC_DB_PATH=data/music.db
 MUSIC_INDEX_PATH=data/faiss.index
 MUSIC_IDS_PATH=data/ids.npy
 
