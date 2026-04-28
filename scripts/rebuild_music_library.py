@@ -9,6 +9,7 @@ import os
 import re
 import sqlite3
 import sys
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,11 @@ import faiss
 import numpy as np
 import requests
 from sentence_transformers import SentenceTransformer
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import faiss
 from app.config import Settings
 
@@ -474,6 +480,18 @@ def table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
     return {r[1] for r in rows}
 
 
+def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'table' AND name = ?
+        """,
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
 def pick(row: sqlite3.Row, cols: set[str], *candidates: str) -> Any:
     for c in candidates:
         if c in cols:
@@ -487,14 +505,40 @@ def pick(row: sqlite3.Row, cols: set[str], *candidates: str) -> Any:
 
 def load_source_rows(src_conn: sqlite3.Connection) -> tuple[list[sqlite3.Row], set[str]]:
     src_conn.row_factory = sqlite3.Row
-    # Support both "tracks" and "songs" table names
-    table_name = "tracks"
-    existing_tables = [r[0] for r in src_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-    if "tracks" not in existing_tables and "songs" in existing_tables:
-        table_name = "songs"
-    cols = table_columns(src_conn, table_name)
-    rows = src_conn.execute(f"SELECT * FROM {table_name} WHERE title IS NOT NULL").fetchall()
-    return rows, cols
+    if table_exists(src_conn, "tracks"):
+        cols = table_columns(src_conn, "tracks")
+        rows = src_conn.execute("SELECT * FROM tracks WHERE title IS NOT NULL").fetchall()
+        return rows, cols
+
+    if table_exists(src_conn, "songs"):
+        # Million Song Dataset track_metadata.db uses a `songs` table. Convert it
+        # to the normalized source shape expected by the rest of this pipeline.
+        rows = src_conn.execute(
+            """
+            SELECT
+                rowid AS id,
+                title,
+                artist_name,
+                release AS album_name,
+                year AS release_year,
+                artist_hotttnesss AS popularity
+            FROM songs
+            WHERE title IS NOT NULL
+            """
+        ).fetchall()
+        return rows, {
+            "id",
+            "title",
+            "artist_name",
+            "album_name",
+            "release_year",
+            "popularity",
+        }
+
+    raise RuntimeError(
+        "Source DB must contain either a normalized `tracks` table or "
+        "the MSD `songs` table from track_metadata.db."
+    )
 
 
 # =========================
@@ -1116,8 +1160,13 @@ def build_index(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--src-db", type=Path, required=True, help="旧库，必须包含 tracks 表")
-    parser.add_argument("--dst-db", type=Path, default=Path("data/music_clean.db"))
+    parser.add_argument(
+        "--src-db",
+        type=Path,
+        default=Path("data/track_metadata.db"),
+        help="Source DB. Supports MSD track_metadata.db (`songs`) or a normalized `tracks` table.",
+    )
+    parser.add_argument("--dst-db", type=Path, default=Path("data/music.db"))
     parser.add_argument("--emb-path", type=Path, default=Path("data/embeddings.npy"))
     parser.add_argument("--ids-path", type=Path, default=Path("data/ids.npy"))
     parser.add_argument("--index-path", type=Path, default=Path("data/faiss.index"))
