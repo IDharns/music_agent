@@ -39,6 +39,8 @@ class ResponseBuilder:
                 "popularity_bucket": item.get("popularity_bucket"),
                 "language": item.get("language"),
                 "score": item.get("score"),
+                "similarity": item.get("similarity"),
+                "tag_overlap": item.get("tag_overlap"),
                 "match_type": item.get("match_type"),
                 "reason": reason,
             }

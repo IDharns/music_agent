@@ -32,6 +32,8 @@ export type SearchResultItem = {
     popularity_bucket: string | null;
     language: string | null;
     score: number | null;
+    similarity: number | null;
+    tag_overlap: number | null;
     match_type: string | null;
     reason: string | null;
 

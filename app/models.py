@@ -84,6 +84,8 @@ class _TrackResponseBase(TypedDict):
     popularity_bucket: str | None
     language: str | None
     score: float | None
+    similarity: float | None
+    tag_overlap: float | None
     match_type: str | None
     reason: str | None
 

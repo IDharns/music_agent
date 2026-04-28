@@ -61,6 +61,14 @@ function ResultCard({ item, rank }: { item: SearchResultItem; rank: number }) {
             ) : null}
           </div>
 
+          {item.similarity != null ? (
+            <div className="mt-3 flex flex-wrap gap-3 text-xs text-neutral-500 font-mono">
+              <span>sim <span className="text-neutral-300">{item.similarity.toFixed(4)}</span></span>
+              <span>tag overlap <span className="text-neutral-300">{item.tag_overlap != null ? item.tag_overlap.toFixed(4) : "0.0000"}</span></span>
+              <span>final <span className="text-neutral-300">{item.score != null ? item.score.toFixed(4) : "-"}</span></span>
+            </div>
+          ) : null}
+
           {item.reason ? (
             <p className="mt-4 text-sm leading-6 text-neutral-200">{item.reason}</p>
           ) : null}
@@ -110,7 +118,7 @@ function UserBubble({ query }: { query: string }) {
 }
 
 export default function Page() {
-  const [query, setQuery] = useState("类似Taylor Swift但不要太热门，更梦幻一点");
+  const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -124,7 +132,7 @@ export default function Page() {
     const q = (nextQuery ?? query).trim();
     if (!q) return;
 
-    setQuery(q);
+    setQuery("");
     setSubmittedQuery(q);
     setLoading(true);
     setError("");

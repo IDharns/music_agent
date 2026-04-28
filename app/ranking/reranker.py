@@ -101,12 +101,15 @@ class Reranker:
         rescored: list[dict[str, Any]] = []
 
         for item in raw_candidates:
-            new_score = self._score_one(item, parsed_query)
-            if new_score is None:
+            result = self._score_one(item, parsed_query)
+            if result is None:
                 continue
 
+            new_score, similarity, tag_overlap = result
             out = dict(item)
             out["score"] = round(float(new_score), 6)
+            out["similarity"] = round(float(similarity), 6)
+            out["tag_overlap"] = round(float(tag_overlap), 6)
             rescored.append(out)
 
         rescored.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
@@ -116,9 +119,8 @@ class Reranker:
             self,
             item: dict[str, Any],
             parsed_query: dict[str, Any],
-    ) -> float | None:
-        score = float(item.get("score", 0.0))
-
+    ) -> tuple[float, float, float] | None:
+        """Returns (final_score, similarity, tag_overlap) or None if filtered."""
         title = self._norm(item.get("title"))
         artist = self._norm(item.get("artist"))
         album = self._norm(item.get("album"))
@@ -163,6 +165,17 @@ class Reranker:
         vocal_pref = self._norm(parsed_query.get("vocal"))
         popularity_pref = self._norm(parsed_query.get("popularity_preference"))
 
+        semantic_terms = self._semantic_terms(parsed_query)
+        similarity = float(item.get("score", 0.0))
+        tag_overlap = self._tag_overlap(
+            semantic_terms=semantic_terms,
+            style_tags_blob=style_tags_blob,
+            mood_anchors_blob=mood_anchors_blob,
+            artist_tags_blob=artist_tags_blob,
+            album_tags_blob=album_tags_blob,
+        )
+        score = 0.7 * similarity + 0.3 * tag_overlap
+
         if self._contains_any(title, self.TITLE_NOISE_PATTERNS):
             return None
 
@@ -192,7 +205,6 @@ class Reranker:
         if query_type == "mixed" and artist in artist_seeds:
             score -= 0.35
 
-        semantic_terms = self._semantic_terms(parsed_query)
         title_hits = sum(1 for term in semantic_terms if term in title)
         meta_hits = sum(1 for term in semantic_terms if term in meta_blob)
 
@@ -270,7 +282,25 @@ class Reranker:
             elif self._contains_any(meta_blob, self.ACOUSTIC_PROXY_TERMS):
                 score += 0.10
 
-        return score
+        return score, similarity, tag_overlap
+
+    def _tag_overlap(
+            self,
+            semantic_terms: set[str],
+            style_tags_blob: str,
+            mood_anchors_blob: str,
+            artist_tags_blob: str,
+            album_tags_blob: str,
+    ) -> float:
+        """Fraction of semantic query terms that appear in the track's tag fields."""
+        if not semantic_terms:
+            return 0.0
+        tag_blob = " | ".join(
+            x for x in [style_tags_blob, mood_anchors_blob, artist_tags_blob, album_tags_blob]
+            if x
+        )
+        hits = sum(1 for term in semantic_terms if term in tag_blob)
+        return hits / len(semantic_terms)
 
     def _semantic_terms(self, parsed_query: dict[str, Any]) -> set[str]:
         terms: set[str] = set()
