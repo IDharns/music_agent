@@ -217,35 +217,105 @@ function UserBubble({ query }: { query: string }) {
   );
 }
 
+type SearchTurn = {
+  id: string;
+  query: string;
+  loading: boolean;
+  error: string;
+  data: SearchResponse | null;
+};
+
+function SearchTurnView({ turn }: { turn: SearchTurn }) {
+  const hasResults = !!turn.data && Array.isArray(turn.data.results) && turn.data.results.length > 0;
+
+  return (
+    <div className="space-y-4">
+      <UserBubble query={turn.query} />
+
+      {turn.loading ? (
+        <div className="flex gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400 text-sm font-semibold text-black">
+            M
+          </div>
+          <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-300">
+            Listening through the catalog...
+          </div>
+        </div>
+      ) : null}
+
+      {turn.error ? (
+        <div className="rounded-lg border border-red-900 bg-red-950 px-4 py-3 text-sm text-red-200">
+          {turn.error}
+        </div>
+      ) : null}
+
+      {hasResults ? (
+        <div className="flex gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400 text-sm font-semibold text-black">
+            M
+          </div>
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-200">
+              I found {turn.data?.result_count ?? 0} tracks that fit this direction.
+            </div>
+            {turn.data!.results.map((item, index) => (
+              <ResultCard key={`${turn.id}-${item.id}-${item.title}`} item={item} rank={index + 1} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Page() {
   const [query, setQuery] = useState("");
-  const [submittedQuery, setSubmittedQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [data, setData] = useState<SearchResponse | null>(null);
-
-  const hasResults = useMemo(() => {
-    return !!data && Array.isArray(data.results) && data.results.length > 0;
-  }, [data]);
+  const [turns, setTurns] = useState<SearchTurn[]>([]);
+  const nextTurnId = useRef(1);
+  const latestData = useMemo(() => {
+    for (let i = turns.length - 1; i >= 0; i -= 1) {
+      if (turns[i].data) return turns[i].data;
+    }
+    return null;
+  }, [turns]);
+  const isLoading = useMemo(() => turns.some((turn) => turn.loading), [turns]);
 
   async function runSearch(nextQuery?: string) {
     const q = (nextQuery ?? query).trim();
     if (!q) return;
 
+    const turnId = String(nextTurnId.current++);
     setQuery("");
-    setSubmittedQuery(q);
-    setLoading(true);
-    setError("");
+    setTurns((current) => [
+      ...current,
+      {
+        id: turnId,
+        query: q,
+        loading: true,
+        error: "",
+        data: null,
+      },
+    ]);
 
     try {
       const result = await searchMusic(q, 10, 3, DEBUG_UI);
-      setData(result);
+      setTurns((current) =>
+        current.map((turn) =>
+          turn.id === turnId
+            ? { ...turn, loading: false, error: "", data: result }
+            : turn
+        )
+      );
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setData(null);
-    } finally {
-      setLoading(false);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setTurns((current) =>
+        current.map((turn) =>
+          turn.id === turnId
+            ? { ...turn, loading: false, error: message, data: null }
+            : turn
+        )
+      );
     }
   }
 
@@ -273,26 +343,11 @@ export default function Page() {
         <section className="flex-1 space-y-6 overflow-y-auto py-6">
           <AssistantIntro />
 
-          {submittedQuery ? <UserBubble query={submittedQuery} /> : null}
+          {turns.map((turn) => (
+            <SearchTurnView key={turn.id} turn={turn} />
+          ))}
 
-          {loading ? (
-            <div className="flex gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400 text-sm font-semibold text-black">
-                M
-              </div>
-              <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-300">
-                Listening through the catalog...
-              </div>
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className="rounded-lg border border-red-900 bg-red-950 px-4 py-3 text-sm text-red-200">
-              {error}
-            </div>
-          ) : null}
-
-          {!loading && !hasResults && !error ? (
+          {!turns.length ? (
             <div className="space-y-3">
               <p className="text-sm text-neutral-500">Try one of these:</p>
               <div className="flex flex-wrap gap-2">
@@ -309,37 +364,21 @@ export default function Page() {
             </div>
           ) : null}
 
-          {hasResults ? (
-            <div className="flex gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400 text-sm font-semibold text-black">
-                M
-              </div>
-              <div className="min-w-0 flex-1 space-y-3">
-                <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-200">
-                  I found {data?.result_count ?? 0} tracks that fit this direction.
-                </div>
-                {data!.results.map((item, index) => (
-                  <ResultCard key={`${item.id}-${item.title}`} item={item} rank={index + 1} />
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           {DEBUG_UI ? (
             <aside className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
               <h2 className="text-sm font-semibold text-neutral-200">Debug</h2>
               <div className="mt-3 grid gap-3 text-xs text-neutral-400 lg:grid-cols-2">
                 <div>
                   <p className="text-neutral-500">query_type</p>
-                  <p className="mt-1 text-neutral-200">{data?.query_type || "-"}</p>
+                  <p className="mt-1 text-neutral-200">{latestData?.query_type || "-"}</p>
                 </div>
                 <div>
                   <p className="text-neutral-500">semantic_query_used</p>
-                  <p className="mt-1 break-words text-neutral-200">{data?.semantic_query_used || "-"}</p>
+                  <p className="mt-1 break-words text-neutral-200">{latestData?.semantic_query_used || "-"}</p>
                 </div>
               </div>
               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-neutral-400">
-                {JSON.stringify(data, null, 2)}
+                {JSON.stringify(latestData, null, 2)}
               </pre>
             </aside>
           ) : null}
@@ -356,10 +395,10 @@ export default function Page() {
             />
             <button
               onClick={() => void runSearch()}
-              disabled={loading}
+              disabled={isLoading}
               className="rounded-lg bg-white px-5 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Searching" : "Send"}
+              {isLoading ? "Searching" : "Send"}
             </button>
           </div>
         </footer>
