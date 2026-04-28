@@ -175,6 +175,14 @@ class Reranker:
             album_tags_blob=album_tags_blob,
         )
         score = 0.7 * similarity + 0.3 * tag_overlap
+        has_structured_constraints = bool(
+            genres
+            or moods
+            or includes
+            or artist_seeds
+            or (vocal_pref and vocal_pref != "unknown")
+            or (popularity_pref and popularity_pref != "unknown")
+        )
 
         if self._contains_any(title, self.TITLE_NOISE_PATTERNS):
             return None
@@ -209,7 +217,10 @@ class Reranker:
         meta_hits = sum(1 for term in semantic_terms if term in meta_blob)
 
         if title_hits >= 1 and meta_hits == 0:
-            score -= 0.22
+            score -= 0.35 if has_structured_constraints else 0.22
+
+        if has_structured_constraints and title_hits >= 1 and meta_hits == 0 and tag_overlap == 0:
+            return None
 
         dreamy_required = bool(moods & {"dreamy", "ethereal", "soft", "mellow"})
         dreamy_ok = self._contains_any(meta_blob, self.DREAMY_TERMS) or "dreamy" in mood_anchors_blob
@@ -233,6 +244,8 @@ class Reranker:
                 style_hit_count += 1
         if style_hit_count:
             score += min(style_hit_count, 3) * 0.12
+        elif has_structured_constraints and title_hits == 0 and tag_overlap == 0 and similarity < 0.35:
+            return None
 
         if vocal_pref == "female vocal":
             if vocal_type == "female vocal" or "female vocal" in style_tags_blob:
@@ -314,6 +327,10 @@ class Reranker:
         vocal = self._norm(parsed_query.get("vocal"))
         if vocal and vocal != "unknown":
             terms.add(vocal)
+
+        energy = self._norm(parsed_query.get("energy"))
+        if energy and energy != "unknown":
+            terms.add(energy)
 
         pop_pref = self._norm(parsed_query.get("popularity_preference"))
         if pop_pref == "less_popular":

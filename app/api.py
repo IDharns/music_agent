@@ -15,7 +15,7 @@ settings.validate_runtime_files()
 
 class RecommendRequest(BaseModel):
     query: str = Field(..., min_length=1, description="User query")
-    final_k: int = Field(5, ge=1, le=50)
+    final_k: int = Field(10, ge=1, le=50)
     max_per_artist: int = Field(3, ge=1, le=20)
     include_debug: bool = Field(False, description="Include ranking and parsing debug fields")
 
@@ -109,7 +109,7 @@ def warmup():
 
 def run_recommendation(
         query: str,
-        final_k: int = 5,
+        final_k: int = 10,
         max_per_artist: int = 3,
         include_debug: bool = False,
 ):
@@ -124,7 +124,7 @@ def run_recommendation(
 @app.get("/recommend")
 def recommend_get(
         query: str = Query(..., min_length=1, description="User query"),
-        final_k: int = Query(5, ge=1, le=50),
+        final_k: int = Query(10, ge=1, le=50),
         max_per_artist: int = Query(3, ge=1, le=20),
         include_debug: bool = Query(False, description="Include ranking and parsing debug fields"),
 ):
