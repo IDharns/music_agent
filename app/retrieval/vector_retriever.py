@@ -5,9 +5,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
+import faiss
 
 from app.models import Track
 
@@ -29,7 +29,7 @@ class VectorRetriever:
 
         self._validate_runtime_files()
 
-        self.model = SentenceTransformer(self.model_name)
+        self.model = SentenceTransformer(self.model_name, device="cpu")
         self.index = faiss.read_index(self.index_path)
         self.ids = np.load(self.ids_path)
         self._validate_schema()

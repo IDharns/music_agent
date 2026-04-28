@@ -4,12 +4,20 @@ from functools import lru_cache
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.services.recommendation_service import RecommendationService
 
 
 settings.validate_runtime_files()
+
+
+class RecommendRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="User query")
+    final_k: int = Field(5, ge=1, le=50)
+    max_per_artist: int = Field(3, ge=1, le=20)
+    include_debug: bool = Field(False, description="Include ranking and parsing debug fields")
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -84,7 +92,7 @@ def root():
     return {
         "name": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "endpoints": ["/health", "/warmup", "/search"],
+        "endpoints": ["/health", "/warmup", "/recommend", "/search"],
     }
 
 
@@ -99,6 +107,45 @@ def warmup():
     return {"status": "ready"}
 
 
+def run_recommendation(
+        query: str,
+        final_k: int = 5,
+        max_per_artist: int = 3,
+        include_debug: bool = False,
+):
+    return get_recommendation_service().run_query(
+        query=query,
+        final_k=final_k,
+        max_per_artist=max_per_artist,
+        include_debug=include_debug,
+    )
+
+
+@app.get("/recommend")
+def recommend_get(
+        query: str = Query(..., min_length=1, description="User query"),
+        final_k: int = Query(5, ge=1, le=50),
+        max_per_artist: int = Query(3, ge=1, le=20),
+        include_debug: bool = Query(False, description="Include ranking and parsing debug fields"),
+):
+    return run_recommendation(
+        query=query,
+        final_k=final_k,
+        max_per_artist=max_per_artist,
+        include_debug=include_debug,
+    )
+
+
+@app.post("/recommend")
+def recommend_post(request: RecommendRequest):
+    return run_recommendation(
+        query=request.query,
+        final_k=request.final_k,
+        max_per_artist=request.max_per_artist,
+        include_debug=request.include_debug,
+    )
+
+
 @app.get("/search")
 def search(
         query: str = Query(..., min_length=1, description="User query"),
@@ -106,7 +153,7 @@ def search(
         max_per_artist: int = Query(3, ge=1, le=20),
         include_debug: bool = Query(False, description="Include ranking and parsing debug fields"),
 ):
-    return get_recommendation_service().run_query(
+    return run_recommendation(
         query=query,
         final_k=final_k,
         max_per_artist=max_per_artist,
