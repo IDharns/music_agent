@@ -32,6 +32,9 @@ class RecommendationService:
             include_debug: bool = False,
     ) -> dict[str, Any]:
         parsed_query = self.query_module.understand(query)
+        parsed_limit = parsed_query.get("result_limit")
+        if isinstance(parsed_limit, int) and 1 <= parsed_limit <= 50:
+            final_k = parsed_limit
         query_type = parsed_query.get("query_type", "semantic")
 
         fallback_used = False

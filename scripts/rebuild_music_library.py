@@ -2,16 +2,22 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import re
 import sqlite3
 import sys
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 import faiss
 import numpy as np
@@ -22,6 +28,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+import faiss
 from app.config import Settings
 
 # =========================
@@ -913,11 +920,23 @@ def build_clean_track(
         row: sqlite3.Row,
         cols: set[str],
         dst_conn: sqlite3.Connection,
+        track_id_override: int | None = None,
 ) -> CleanTrack:
-    track_id = int(pick(row, cols, "id"))
+    # Use provided track_id or generate from numeric field
+    if track_id_override is not None:
+        track_id = track_id_override
+    else:
+        numeric_id = pick(row, cols, "track_7digitalid", "id")
+        if numeric_id is None:
+            track_id_str = pick(row, cols, "track_id", "song_id")
+            if track_id_str:
+                numeric_id = int(hashlib.md5(str(track_id_str).encode()).hexdigest()[:8], 16)
+            else:
+                numeric_id = 0
+        track_id = int(numeric_id) if numeric_id else 0
     title = safe_str(pick(row, cols, "title"))
     artist_name = safe_str(pick(row, cols, "artist_name", "artist"))
-    album_name = safe_str(pick(row, cols, "album_name", "album"))
+    album_name = safe_str(pick(row, cols, "album_name", "album", "release"))
 
     year_raw = pick(row, cols, "release_year", "year")
     try:
@@ -1114,7 +1133,14 @@ def build_index(
     ids = np.array([r[0] for r in rows], dtype=np.int64)
     texts = [r[1] for r in rows]
 
-    model = SentenceTransformer(MODEL_NAME)
+    # Disable all threading backends before loading the model — prevents loky/OpenMP
+    # segfaults on macOS with Python 3.13.
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+    model = SentenceTransformer(MODEL_NAME, device="cpu")
     vecs = model.encode(
         texts,
         batch_size=batch_size,
@@ -1212,7 +1238,7 @@ def main() -> None:
 
     clean_tracks: list[CleanTrack] = []
     for i, row in enumerate(rows, start=1):
-        clean_tracks.append(build_clean_track(row, cols, dst_conn))
+        clean_tracks.append(build_clean_track(row, cols, dst_conn, track_id_override=i))
         if i % 100000 == 0:
             print(f"built clean track docs: {i}/{len(rows)}")
 

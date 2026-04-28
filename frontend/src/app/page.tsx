@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { searchMusic, SearchResponse, SearchResultItem } from "@/lib/api";
+import { fetchItunesMatch, ItunesMatch } from "@/lib/itunes";
 
 const DEBUG_UI = process.env.NEXT_PUBLIC_DEBUG_UI === "1";
 
@@ -25,13 +27,107 @@ function formatPopularity(bucket?: string | null) {
   return "Unknown reach";
 }
 
+function useItunesEnrich(title: string, artist: string): ItunesMatch | null {
+  const key = `${title}||${artist}`;
+  const [state, setState] = useState<{
+    key: string;
+    match: ItunesMatch | null;
+  }>({ key: "", match: null });
+
+  useEffect(() => {
+    if (!title || !artist) return;
+
+    let cancelled = false;
+
+    fetchItunesMatch(title, artist).then((result) => {
+      if (!cancelled) {
+        setState({ key, match: result });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [key, title, artist]);
+
+  if (!title || !artist || state.key !== key) {
+    return null;
+  }
+
+  return state.match;
+}
+
+function PreviewPlayer({ url }: { url: string }) {
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  function toggle() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+    } else {
+      audio.play();
+      setPlaying(true);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex items-center gap-2">
+      <button
+        onClick={toggle}
+        className="flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500 hover:text-white"
+      >
+        {playing ? (
+          <>
+            <span className="inline-block h-2.5 w-2.5">
+              <svg viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="0" width="3" height="10"/><rect x="6" y="0" width="3" height="10"/></svg>
+            </span>
+            Pause
+          </>
+        ) : (
+          <>
+            <span className="inline-block h-2.5 w-2.5">
+              <svg viewBox="0 0 10 10" fill="currentColor"><polygon points="0,0 10,5 0,10"/></svg>
+            </span>
+            Preview
+          </>
+        )}
+      </button>
+      {playing && (
+        <span className="text-xs text-neutral-500">30s sample</span>
+      )}
+      <audio
+        ref={audioRef}
+        src={url}
+        onEnded={() => setPlaying(false)}
+        preload="none"
+      />
+    </div>
+  );
+}
+
 function ResultCard({ item, rank }: { item: SearchResultItem; rank: number }) {
+  const itunes = useItunesEnrich(item.title ?? "", item.artist ?? "");
+
   return (
     <article className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-sm font-semibold text-black">
-          {rank}
-        </div>
+        {/* Album art or rank badge */}
+        {itunes?.artworkUrl ? (
+          <Image
+            src={itunes.artworkUrl}
+            alt={`${item.album ?? item.title} cover`}
+            className="h-14 w-14 shrink-0 rounded-lg object-cover"
+            width={56}
+            height={56}
+          />
+        ) : (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-sm font-semibold text-black">
+            {rank}
+          </div>
+        )}
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -60,6 +156,18 @@ function ResultCard({ item, rank }: { item: SearchResultItem; rank: number }) {
               <span className="rounded-lg bg-neutral-900 px-2.5 py-1">{item.language}</span>
             ) : null}
           </div>
+
+          {itunes?.previewUrl ? (
+            <PreviewPlayer url={itunes.previewUrl} />
+          ) : null}
+
+          {item.similarity != null ? (
+            <div className="mt-3 flex flex-wrap gap-3 text-xs text-neutral-500 font-mono">
+              <span>sim <span className="text-neutral-300">{item.similarity.toFixed(4)}</span></span>
+              <span>tag overlap <span className="text-neutral-300">{item.tag_overlap != null ? item.tag_overlap.toFixed(4) : "0.0000"}</span></span>
+              <span>final <span className="text-neutral-300">{item.score != null ? item.score.toFixed(4) : "-"}</span></span>
+            </div>
+          ) : null}
 
           {item.reason ? (
             <p className="mt-4 text-sm leading-6 text-neutral-200">{item.reason}</p>
@@ -109,35 +217,105 @@ function UserBubble({ query }: { query: string }) {
   );
 }
 
-export default function Page() {
-  const [query, setQuery] = useState("类似Taylor Swift但不要太热门，更梦幻一点");
-  const [submittedQuery, setSubmittedQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [data, setData] = useState<SearchResponse | null>(null);
+type SearchTurn = {
+  id: string;
+  query: string;
+  loading: boolean;
+  error: string;
+  data: SearchResponse | null;
+};
 
-  const hasResults = useMemo(() => {
-    return !!data && Array.isArray(data.results) && data.results.length > 0;
-  }, [data]);
+function SearchTurnView({ turn }: { turn: SearchTurn }) {
+  const hasResults = !!turn.data && Array.isArray(turn.data.results) && turn.data.results.length > 0;
+
+  return (
+    <div className="space-y-4">
+      <UserBubble query={turn.query} />
+
+      {turn.loading ? (
+        <div className="flex gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400 text-sm font-semibold text-black">
+            M
+          </div>
+          <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-300">
+            Listening through the catalog...
+          </div>
+        </div>
+      ) : null}
+
+      {turn.error ? (
+        <div className="rounded-lg border border-red-900 bg-red-950 px-4 py-3 text-sm text-red-200">
+          {turn.error}
+        </div>
+      ) : null}
+
+      {hasResults ? (
+        <div className="flex gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400 text-sm font-semibold text-black">
+            M
+          </div>
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-200">
+              I found {turn.data?.result_count ?? 0} tracks that fit this direction.
+            </div>
+            {turn.data!.results.map((item, index) => (
+              <ResultCard key={`${turn.id}-${item.id}-${item.title}`} item={item} rank={index + 1} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export default function Page() {
+  const [query, setQuery] = useState("");
+  const [turns, setTurns] = useState<SearchTurn[]>([]);
+  const nextTurnId = useRef(1);
+  const latestData = useMemo(() => {
+    for (let i = turns.length - 1; i >= 0; i -= 1) {
+      if (turns[i].data) return turns[i].data;
+    }
+    return null;
+  }, [turns]);
+  const isLoading = useMemo(() => turns.some((turn) => turn.loading), [turns]);
 
   async function runSearch(nextQuery?: string) {
     const q = (nextQuery ?? query).trim();
     if (!q) return;
 
-    setQuery(q);
-    setSubmittedQuery(q);
-    setLoading(true);
-    setError("");
+    const turnId = String(nextTurnId.current++);
+    setQuery("");
+    setTurns((current) => [
+      ...current,
+      {
+        id: turnId,
+        query: q,
+        loading: true,
+        error: "",
+        data: null,
+      },
+    ]);
 
     try {
       const result = await searchMusic(q, 10, 3, DEBUG_UI);
-      setData(result);
+      setTurns((current) =>
+        current.map((turn) =>
+          turn.id === turnId
+            ? { ...turn, loading: false, error: "", data: result }
+            : turn
+        )
+      );
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setData(null);
-    } finally {
-      setLoading(false);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      setTurns((current) =>
+        current.map((turn) =>
+          turn.id === turnId
+            ? { ...turn, loading: false, error: message, data: null }
+            : turn
+        )
+      );
     }
   }
 
@@ -165,26 +343,11 @@ export default function Page() {
         <section className="flex-1 space-y-6 overflow-y-auto py-6">
           <AssistantIntro />
 
-          {submittedQuery ? <UserBubble query={submittedQuery} /> : null}
+          {turns.map((turn) => (
+            <SearchTurnView key={turn.id} turn={turn} />
+          ))}
 
-          {loading ? (
-            <div className="flex gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400 text-sm font-semibold text-black">
-                M
-              </div>
-              <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-300">
-                Listening through the catalog...
-              </div>
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className="rounded-lg border border-red-900 bg-red-950 px-4 py-3 text-sm text-red-200">
-              {error}
-            </div>
-          ) : null}
-
-          {!loading && !hasResults && !error ? (
+          {!turns.length ? (
             <div className="space-y-3">
               <p className="text-sm text-neutral-500">Try one of these:</p>
               <div className="flex flex-wrap gap-2">
@@ -201,37 +364,21 @@ export default function Page() {
             </div>
           ) : null}
 
-          {hasResults ? (
-            <div className="flex gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-400 text-sm font-semibold text-black">
-                M
-              </div>
-              <div className="min-w-0 flex-1 space-y-3">
-                <div className="rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-200">
-                  I found {data?.result_count ?? 0} tracks that fit this direction.
-                </div>
-                {data!.results.map((item, index) => (
-                  <ResultCard key={`${item.id}-${item.title}`} item={item} rank={index + 1} />
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           {DEBUG_UI ? (
             <aside className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
               <h2 className="text-sm font-semibold text-neutral-200">Debug</h2>
               <div className="mt-3 grid gap-3 text-xs text-neutral-400 lg:grid-cols-2">
                 <div>
                   <p className="text-neutral-500">query_type</p>
-                  <p className="mt-1 text-neutral-200">{data?.query_type || "-"}</p>
+                  <p className="mt-1 text-neutral-200">{latestData?.query_type || "-"}</p>
                 </div>
                 <div>
                   <p className="text-neutral-500">semantic_query_used</p>
-                  <p className="mt-1 break-words text-neutral-200">{data?.semantic_query_used || "-"}</p>
+                  <p className="mt-1 break-words text-neutral-200">{latestData?.semantic_query_used || "-"}</p>
                 </div>
               </div>
               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-neutral-400">
-                {JSON.stringify(data, null, 2)}
+                {JSON.stringify(latestData, null, 2)}
               </pre>
             </aside>
           ) : null}
@@ -248,10 +395,10 @@ export default function Page() {
             />
             <button
               onClick={() => void runSearch()}
-              disabled={loading}
+              disabled={isLoading}
               className="rounded-lg bg-white px-5 py-3 font-medium text-black transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Searching" : "Send"}
+              {isLoading ? "Searching" : "Send"}
             </button>
           </div>
         </footer>

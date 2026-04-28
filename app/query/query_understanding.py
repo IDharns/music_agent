@@ -70,6 +70,7 @@ class QueryUnderstandingModule:
         energy = self._extract_energy(normalized_query)
         era = self._extract_era(normalized_query)
         popularity_preference = self._extract_popularity_preference(normalized_query)
+        result_limit = self._extract_result_limit(normalized_query)
         include = self._extract_include(normalized_query)
         exclude = self._extract_exclude(normalized_query)
         if exclude:
@@ -102,6 +103,7 @@ class QueryUnderstandingModule:
             "energy": energy,
             "era": era,
             "popularity_preference": popularity_preference,
+            "result_limit": result_limit,
             "include": include,
             "exclude": exclude,
             "normalized_query": normalized_query,
@@ -320,9 +322,15 @@ class QueryUnderstandingModule:
         return self._extract_multi_label(text, mapping)
 
     def _extract_vocal(self, text: str) -> str:
-        if any(k in text for k in ["female vocal", "female vocals", "female singer", "女声", "女生", "female pop"]):
+        if any(k in text for k in [
+            "female vocal", "female vocals", "female singer", "female singers",
+            "girl", "girl music", "girly", "women", "woman", "女声", "女生", "female pop",
+        ]):
             return "female vocal"
-        if any(k in text for k in ["male vocal", "male vocals", "male singer", "男声", "男生", "male pop"]):
+        if any(k in text for k in [
+            "male vocal", "male vocals", "male singer", "male singers",
+            "boy", "boy music", "men", "man", "男声", "男生", "male pop",
+        ]):
             return "male vocal"
         if "female" in text and "instrumental" not in text:
             return "female vocal"
@@ -378,6 +386,40 @@ class QueryUnderstandingModule:
             return "less_popular"
         if any(k in text for k in more_popular_markers):
             return "more_popular"
+        return None
+
+    def _extract_result_limit(self, text: str) -> int | None:
+        patterns = [
+            r"\btop\s+(\d{1,2})\b",
+            r"\b(\d{1,2})\s+(?:songs?|tracks?|results?|recs?|recommendations?)\b",
+            r"\b(?:give me|show me|need|want)\s+(\d{1,2})\b",
+            r"(\d{1,2})\s*(?:首|个|條|条)",
+        ]
+        word_based_limits = [
+            (r"\ba couple of\b", 2),
+            (r"\ba couple\b", 2),
+            (r"\ba few\b", 3),
+            (r"\bsome\b", 5),
+            (r"几首", 3),
+            (r"几个", 3),
+            (r"一些", 5),
+            (r"来几首", 3),
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if not match:
+                continue
+            try:
+                value = int(match.group(1))
+            except Exception:
+                continue
+            if 1 <= value <= 50:
+                return value
+
+        for pattern, value in word_based_limits:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                return value
         return None
 
     def _extract_include(self, text: str) -> list[str]:

@@ -95,14 +95,6 @@ class ExplanationService:
             "penalties": penalties,
         }
 
-    def build_reason(
-            self,
-            item: dict[str, Any],
-            route: dict[str, Any],
-            fallback_used: bool,
-    ) -> str:
-        return self.build_listener_reason(item, route, fallback_used)
-
     def _query_style_terms(self, route: dict[str, Any]) -> set[str]:
         terms: set[str] = set()
         for key in ("genres", "include"):

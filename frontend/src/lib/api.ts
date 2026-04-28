@@ -12,16 +12,34 @@ export type ParsedQuery = {
     raw_query?: string;
 };
 
+/**
+ * Canonical track shape returned by /search.
+ *
+ * Base fields are always present (score and match_type are always emitted,
+ * but may be null if the pipeline had no value).
+ *
+ * Debug-only fields (populated when include_debug=true) are marked optional.
+ *
+ * Mirrors app.models.TrackResponse on the Python side.
+ */
 export type SearchResultItem = {
+    // --- Always present ---
     id: number | string;
     title: string;
     artist: string;
-    album?: string | null;
-    release_year?: number | null;
+    album: string | null;
+    release_year: number | null;
+    popularity_bucket: string | null;
+    language: string | null;
+    score: number | null;
+    similarity: number | null;
+    tag_overlap: number | null;
+    match_type: string | null;
+    reason: string | null;
+
+    // --- Debug-only (include_debug=true) ---
     popularity?: number | null;
     popularity_proxy?: number | null;
-    popularity_bucket?: string | null;
-    language?: string | null;
     vocal_type?: string | null;
     genre_text?: string | null;
     style_text?: string | null;
@@ -34,11 +52,8 @@ export type SearchResultItem = {
     artist_tags?: string[];
     album_tags?: string[];
     mood_confidence?: number | null;
-    score?: number | null;
     heuristic_score?: number | null;
     llm_score?: number | null;
-    match_type?: string | null;
-    reason?: string | null;
     match_evidence?: {
         match_type?: string | null;
         style_hits?: string[];
@@ -47,7 +62,7 @@ export type SearchResultItem = {
         popularity_bucket?: string | null;
         fallback_used?: boolean;
         penalties?: string[];
-    };
+    } | null;
 };
 
 export type SearchResponse = {
@@ -55,8 +70,13 @@ export type SearchResponse = {
     query_type?: string;
     fallback_used?: boolean;
     result_count?: number;
+    // Debug-only envelope fields
     parsed_query?: ParsedQuery;
-    semantic_query_used?: string;
+    semantic_query_base?: string | null;
+    semantic_query_llm?: string | null;
+    semantic_query_used?: string | null;
+    llm_rewrite?: Record<string, unknown> | null;
+    llm_rank_debug?: unknown[];
     results: SearchResultItem[];
 };
 
