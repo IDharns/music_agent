@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { searchMusic, SearchResponse, SearchResultItem } from "@/lib/api";
+import { fetchItunesMatch, ItunesMatch } from "@/lib/itunes";
 
 const DEBUG_UI = process.env.NEXT_PUBLIC_DEBUG_UI === "1";
 
@@ -25,13 +27,107 @@ function formatPopularity(bucket?: string | null) {
   return "Unknown reach";
 }
 
+function useItunesEnrich(title: string, artist: string): ItunesMatch | null {
+  const key = `${title}||${artist}`;
+  const [state, setState] = useState<{
+    key: string;
+    match: ItunesMatch | null;
+  }>({ key: "", match: null });
+
+  useEffect(() => {
+    if (!title || !artist) return;
+
+    let cancelled = false;
+
+    fetchItunesMatch(title, artist).then((result) => {
+      if (!cancelled) {
+        setState({ key, match: result });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [key, title, artist]);
+
+  if (!title || !artist || state.key !== key) {
+    return null;
+  }
+
+  return state.match;
+}
+
+function PreviewPlayer({ url }: { url: string }) {
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  function toggle() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+    } else {
+      audio.play();
+      setPlaying(true);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex items-center gap-2">
+      <button
+        onClick={toggle}
+        className="flex items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-xs text-neutral-300 transition hover:border-neutral-500 hover:text-white"
+      >
+        {playing ? (
+          <>
+            <span className="inline-block h-2.5 w-2.5">
+              <svg viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="0" width="3" height="10"/><rect x="6" y="0" width="3" height="10"/></svg>
+            </span>
+            Pause
+          </>
+        ) : (
+          <>
+            <span className="inline-block h-2.5 w-2.5">
+              <svg viewBox="0 0 10 10" fill="currentColor"><polygon points="0,0 10,5 0,10"/></svg>
+            </span>
+            Preview
+          </>
+        )}
+      </button>
+      {playing && (
+        <span className="text-xs text-neutral-500">30s sample</span>
+      )}
+      <audio
+        ref={audioRef}
+        src={url}
+        onEnded={() => setPlaying(false)}
+        preload="none"
+      />
+    </div>
+  );
+}
+
 function ResultCard({ item, rank }: { item: SearchResultItem; rank: number }) {
+  const itunes = useItunesEnrich(item.title ?? "", item.artist ?? "");
+
   return (
     <article className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-sm font-semibold text-black">
-          {rank}
-        </div>
+        {/* Album art or rank badge */}
+        {itunes?.artworkUrl ? (
+          <Image
+            src={itunes.artworkUrl}
+            alt={`${item.album ?? item.title} cover`}
+            className="h-14 w-14 shrink-0 rounded-lg object-cover"
+            width={56}
+            height={56}
+          />
+        ) : (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-sm font-semibold text-black">
+            {rank}
+          </div>
+        )}
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -60,6 +156,10 @@ function ResultCard({ item, rank }: { item: SearchResultItem; rank: number }) {
               <span className="rounded-lg bg-neutral-900 px-2.5 py-1">{item.language}</span>
             ) : null}
           </div>
+
+          {itunes?.previewUrl ? (
+            <PreviewPlayer url={itunes.previewUrl} />
+          ) : null}
 
           {item.similarity != null ? (
             <div className="mt-3 flex flex-wrap gap-3 text-xs text-neutral-500 font-mono">

@@ -1133,6 +1133,13 @@ def build_index(
     ids = np.array([r[0] for r in rows], dtype=np.int64)
     texts = [r[1] for r in rows]
 
+    # Disable all threading backends before loading the model — prevents loky/OpenMP
+    # segfaults on macOS with Python 3.13.
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
     model = SentenceTransformer(MODEL_NAME, device="cpu")
     vecs = model.encode(
         texts,
